@@ -33,8 +33,12 @@ export default defineConfig({
       transformIndexHtml(html) {
         // Drop `crossorigin` everywhere (CSS link + JS script).
         html = html.replace(/\s+crossorigin(="[^"]*")?/g, '');
-        // Demote `type="module"` to a classic script.
-        html = html.replace(/<script\s+type="module"/g, '<script');
+        // Demote `type="module"` to a classic script. Module scripts are
+        // deferred by default; the classic form is not, so add `defer` to
+        // preserve "run after HTML is parsed" — otherwise the script fires
+        // in <head> before #app / #webgl exist and every getElementById()
+        // returns null.
+        html = html.replace(/<script\s+type="module"/g, '<script defer');
         return html;
       },
     },
