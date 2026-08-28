@@ -974,6 +974,13 @@ function buildDataFlow(curveCount = 5, particlesPerCurve = 8) {
    -------------------------------------------------------------------------- */
 export function createWebGLScene({ canvas, onReady, onProgress }) {
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Low-power tier: small viewport or touch-only device. Fill-rate is the
+  // main scroll-jank culprit (bloom + additive particles at high DPR), so
+  // these devices get smaller particle counts and a lower pixel ratio.
+  const isLowPower =
+    window.matchMedia('(max-width: 48rem)').matches ||
+    window.matchMedia('(pointer: coarse)').matches;
+  const DPR_CAP = isLowPower ? 1 : 1.35;
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x04040a, 0.05);
@@ -992,7 +999,7 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
     alpha: true,
     powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, DPR_CAP));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1030,7 +1037,7 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
   world.add(coreGroup);
 
   // ---- Neural network node graph ---------------------------------------
-  const nodeGraph = buildNodeGraph(reduceMotion ? 18 : 40);
+  const nodeGraph = buildNodeGraph(reduceMotion ? 18 : (isLowPower ? 20 : 30));
   world.add(nodeGraph.group);
 
   // ---- Floating code glyphs (replaces the old low-poly floaters) -------
@@ -1102,7 +1109,9 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
   world.add(wordmark.mesh);
 
   // ---- Circuit-board plane (replaces InstancedMesh dot grid) -----------
-  const circuit = reduceMotion ? null : buildCircuitBoard();
+  // Skipped on low-power devices — 26 curves × dense sampling is a lot of
+  // line geometry to keep updated every frame and it's mostly decorative.
+  const circuit = (reduceMotion || isLowPower) ? null : buildCircuitBoard();
   if (circuit) {
     circuit.group.position.set(0, -3.2, -6);
     circuit.group.rotation.x = -Math.PI * 0.15;
@@ -1110,11 +1119,15 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
   }
 
   // ---- Data-flow particles along curves --------------------------------
-  const dataFlow = reduceMotion ? null : buildDataFlow(5, 8);
+  const dataFlow = reduceMotion
+    ? null
+    : buildDataFlow(isLowPower ? 3 : 5, isLowPower ? 5 : 8);
   if (dataFlow) world.add(dataFlow.group);
 
   // ---- Atmospheric particle field --------------------------------------
-  const PARTICLE_COUNT = reduceMotion ? 0 : 4200;
+  // Additive Points at high counts are fill-rate-bound and were the main
+  // source of scroll jank at the previous count (4200).
+  const PARTICLE_COUNT = reduceMotion ? 0 : (isLowPower ? 1200 : 2000);
   const particleGeo = new THREE.BufferGeometry();
   const positions = new Float32Array(PARTICLE_COUNT * 3);
   const colors = new Float32Array(PARTICLE_COUNT * 3);
@@ -1168,7 +1181,7 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
   scene.add(grid);
 
   // ---- Burst particle system (preserved) -------------------------------
-  const BURST_MAX = reduceMotion ? 0 : 420;
+  const BURST_MAX = reduceMotion ? 0 : (isLowPower ? 180 : 260);
   const burstGeo = new THREE.BufferGeometry();
   const burstPositions = new Float32Array(BURST_MAX * 3);
   const burstVelocities = new Float32Array(BURST_MAX * 3);
@@ -1226,8 +1239,8 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
     burstGeo.attributes.position.needsUpdate = true;
     burstGeo.attributes.color.needsUpdate = true;
   }
-  function burst(section) { emitBurst(section, 60, 1); }
-  function shockwave() { emitBurst('shockwave', 140, 1.7); }
+  function burst(section) { emitBurst(section, isLowPower ? 32 : 48, 1); }
+  function shockwave() { emitBurst('shockwave', isLowPower ? 80 : 110, 1.7); }
 
   function onClick(e) {
     shockwave();
@@ -1260,7 +1273,7 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, DPR_CAP));
     if (composer) composer.setSize(w, h);
   }
 
@@ -1307,7 +1320,7 @@ export function createWebGLScene({ canvas, onReady, onProgress }) {
   if (bloomEnabled) {
     try {
       composer = new EffectComposer(renderer);
-      composer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+      composer.setPixelRatio(Math.min(window.devicePixelRatio, DPR_CAP));
       composer.setSize(window.innerWidth, window.innerHeight);
       renderPass = new RenderPass(scene, camera);
       composer.addPass(renderPass);
